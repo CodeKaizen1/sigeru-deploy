@@ -1,0 +1,4 @@
+# Contraseña y datos reales de conexión a la VM de base de datos externa
+# (host, usuario, contraseña). Ver .env.example para la plantilla -- nunca
+# se sube al repositorio.
+.env

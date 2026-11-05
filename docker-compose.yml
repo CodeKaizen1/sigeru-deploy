@@ -1,0 +1,75 @@
+# sigeru-deploy (variante: base de datos EXTERNA, entrega UTU 05/11/2026)
+#
+# Este NO es un repo de código: es el "pegamento" que une los 2 repos
+# reales del proyecto (sigeru-backend y sigeru-frontend) para que se
+# pueda levantar TODA LA APP (las 3 APIs + los 3 frontends) con un solo
+# "docker compose up", en la máquina/VM de un compañero -- sin instalar
+# PHP, Node ni nada más a mano.
+#
+# DIFERENCIA con la versión anterior (19/10/2026): esta variante NO
+# levanta un contenedor "db" propio. El compañero que recibe esto YA
+# TIENE una VM separada funcionando como servidor de base de datos (con
+# el esquema de SiGeRU ya cargado) -- este docker-compose.yml se conecta
+# a ESA base externa en vez de crear una nueva, así no se duplica ni se
+# pisa la base real de la entrega.
+#
+# Por qué hace falta el contenedor "gateway" (nginx): sigeru-backend
+# expone las 3 APIs y sigeru-frontend expone los 3 frontends, pero son 2
+# proyectos Docker DISTINTOS. El código de los 3 frontends llama a las
+# APIs con rutas relativas (ej. desde backoffice/admin.html,
+# "../../api-gestion/index.php" resuelve a "/api-gestion/index.php" en
+# el MISMO origen de la página) -- pensadas para cuando todo vive bajo
+# el mismo htdocs de XAMPP, con las APIs como carpetas hermanas de los
+# frontends. El gateway unifica todo bajo un solo origen/puerto (8090)
+# sin tocar una sola línea de código de ninguno de los 2 repos.
+#
+# CÓMO USARLO (ver README.md de esta carpeta para el detalle completo):
+#   1. Clonar/copiar los 3 repos como carpetas HERMANAS (mismo padre):
+#        algunacarpeta/sigeru-backend
+#        algunacarpeta/sigeru-frontend
+#        algunacarpeta/sigeru-deploy   <- este
+#   2. cd sigeru-deploy && cp .env.example .env
+#      y completar DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASS con los datos
+#      reales de la VM de base de datos (preguntarle al compañero que la
+#      administra).
+#   3. docker compose up --build
+#   4. Abrir http://localhost:8090/landing/index.html
+#      (o la IP/host de la VM en vez de localhost, según dónde se levante)
+
+services:
+  web:
+    build:
+      # Build context = la raíz de sigeru-backend (igual que su propio
+      # docker-compose.yml), así el Dockerfile encuentra las 3 carpetas
+      # de las APIs tal cual están en ese repo.
+      context: ../sigeru-backend
+      dockerfile: docker/Dockerfile
+    environment:
+      # Estas 5 variables son las únicas que hay que completar en .env
+      # (ver .env.example) con los datos reales de la VM externa de base
+      # de datos. Conexion.php (en cada una de las 3 APIs) las lee con
+      # getenv() -- no hace falta tocar ni una línea de código PHP.
+      DB_HOST: ${DB_HOST:?Completá .env con el host/IP de la VM de base de datos}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-SiGeRU}
+      DB_USER: ${DB_USER:?Completá .env con el usuario de MySQL de la VM}
+      DB_PASS: ${DB_PASS:?Completá .env con la contraseña de MySQL de la VM}
+    volumes:
+      - ../sigeru-backend:/var/www/html
+
+  frontend:
+    build:
+      # Build context = la raíz de sigeru-frontend (igual que su propio
+      # docker-compose.yml).
+      context: ../sigeru-frontend
+      dockerfile: docker/Dockerfile
+
+  gateway:
+    image: nginx:alpine
+    depends_on:
+      - web
+      - frontend
+    ports:
+      - "8090:80"
+    volumes:
+      - ./gateway.conf:/etc/nginx/conf.d/default.conf:ro
