@@ -1,8 +1,8 @@
-# sigeru-deploy (entrega UTU — base de datos externa)
+# sigeru-deploy (entrega UTU — base de datos local, instalación en una sola VM)
 
-Esta carpeta **no es un repo de código del proyecto** — es el "pegamento" que une los 2 repos reales (`sigeru-backend` y `sigeru-frontend`) para poder levantar **toda la app de SiGeRU con un solo `docker compose up`**, sin instalar PHP ni Node a mano.
+Esta carpeta **no es un repo de código del proyecto** — es el "pegamento" que une los 2 repos reales (`sigeru-backend` y `sigeru-frontend`) para poder levantar **toda la app de SiGeRU con un solo `docker compose up`**, sin instalar PHP, Node ni MySQL a mano.
 
-**Esta variante NO incluye un contenedor de base de datos.** Está pensada para entregarle a un compañero que ya tiene su propia VM funcionando como servidor de MySQL (con el esquema de SiGeRU ya cargado) para la entrega de la UTU — acá solo se dockerizan las 3 APIs y los 3 frontends, y se conectan a esa base externa por variables de entorno.
+**Esta variante levanta su propio contenedor de base de datos** (`db`, MySQL 8). Es la pensada para la instalación de ESI Buceo: todo en un solo host Linux (app + BD + respaldo), sin depender de la red ni de una VM externa de otra persona.
 
 ## Qué incluye este paquete
 
@@ -20,11 +20,11 @@ El código de los 3 frontends llama a las APIs con rutas relativas (ej. `../../a
 
 La solución, sin tocar una sola línea de código de ninguno de los 2 repos: un contenedor `gateway` (nginx) que escucha en un solo puerto (**8090**) y reparte el tráfico — `/api-usuarios/`, `/api-gestion/` y `/api-recoleccion/` van al contenedor `web` (las APIs reales), cualquier otra ruta (`/landing/`, `/backoffice/`, `/frontend-usuarios/`) va al contenedor `frontend`.
 
-## Cómo conectarse a la base de datos externa
+## Cómo se conecta la app a la base de datos
 
-Cada una de las 3 APIs (`Conexion.php`) lee las credenciales de conexión por variable de entorno (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS`), con prioridad sobre cualquier `.env` propio del repo. El `docker-compose.yml` de esta carpeta le pasa esas 5 variables al contenedor `web` tomándolas de tu `.env` local — por eso no hace falta tocar código PHP para apuntar a la VM del compañero.
+Cada una de las 3 APIs (`Conexion.php`) lee las credenciales de conexión por variable de entorno (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASS`), con prioridad sobre cualquier `.env` propio del repo. El `docker-compose.yml` de esta carpeta le pasa esas variables al contenedor `web` apuntando al contenedor `db` (`DB_HOST=db`, `DB_USER=root`) — no hace falta tocar código PHP.
 
-`DB_PORT` es una variable nueva (agregada junto con este paquete): si no se completa, por defecto usa 3306 (el puerto estándar de MySQL), así que solo hace falta cambiarla si la VM del compañero expone MySQL en otro puerto.
+El puerto de MySQL (3306) queda publicado **solo en `127.0.0.1`** (loopback de la misma VM), para que un script de respaldo que corra en esa VM (`admin_servidor.sh`) pueda conectarse con `mysqldump`, sin exponer la base hacia la red.
 
 ## Cómo usarlo
 
@@ -44,9 +44,7 @@ Cada una de las 3 APIs (`Conexion.php`) lee las credenciales de conexión por va
    cp .env.example .env
    ```
 
-   Editar `.env` y completar `DB_HOST`, `DB_PORT` (si no es 3306), `DB_NAME`, `DB_USER` y `DB_PASS` con los datos reales de la VM de base de datos — pedírselos al compañero que la administra. **Este `.env` nunca se sube a git** (va a tener una contraseña real).
-
-   > Nota de red: la VM donde se levanten estos contenedores tiene que poder alcanzar por red (misma VPN/red interna, o la IP pública si así está configurado) el host y puerto de `DB_HOST`/`DB_PORT`, y el usuario de `DB_USER` tiene que tener permiso para conectarse desde esa IP (en MySQL, el usuario está atado a un host de origen — si la conexión falla con "Access denied", lo primero a revisar es eso con el compañero que administra la VM).
+   Editar `.env` y completar `MYSQL_ROOT_PASSWORD` con una contraseña propia de esta instalación. **Este `.env` nunca se sube a git** (va a tener una contraseña real).
 
 3. Levantar todo:
 
@@ -54,18 +52,18 @@ Cada una de las 3 APIs (`Conexion.php`) lee las credenciales de conexión por va
    docker compose up --build
    ```
 
-   La primera vez tarda unos minutos (baja las imágenes base de PHP/nginx y arma el build). Las veces siguientes arranca mucho más rápido.
+   La primera vez tarda unos minutos (baja las imágenes de PHP/MySQL/nginx y arma el build, además de cargar el esquema y los datos de prueba en el contenedor `db` recién creado). Las veces siguientes arranca mucho más rápido.
 
 4. Abrir en el navegador: **http://localhost:8090/landing/index.html** (o la IP/host de la VM en lugar de `localhost`, según desde dónde se acceda). El panel administrador: `http://localhost:8090/backoffice/admin.html`.
 
-5. Para parar todo: `docker compose down`. Como la base de datos vive afuera (en la VM del compañero), `docker compose down` nunca borra datos reales — los contenedores que levanta este compose no tienen datos propios que perder.
+5. Para parar sin perder datos: `docker compose stop` (o `docker compose down`, que conserva el volumen nombrado `db-datos` mientras no se use `-v`).
+
+## Respaldo (.tar.gz)
+
+El volumen `db-datos` persiste los datos de MySQL, pero para el respaldo comprimido en `.tar.gz` que exige el comunicado de instalación se usa `admin_servidor.sh` (carpeta aparte, `admin_servidor_docker`), ya adaptado para hablar con este contenedor `db` vía `docker compose exec`. Ver `Guia_Consolidacion_3VM_a_1VM.md` del equipo para el paso a paso completo.
 
 ## Qué quedó verificado y qué falta
 
-Esta variante reutiliza tal cual el `Dockerfile` de `sigeru-backend` y de `sigeru-frontend`, y el mismo `gateway.conf`, ya verificados en la versión anterior (con base de datos local) documentada en `sigeru_deploy_gateway_docker_19_10_2026`. Lo nuevo acá es:
+Esta variante reutiliza tal cual el `Dockerfile` de `sigeru-backend` y de `sigeru-frontend`, y el mismo `gateway.conf`. Lo que cambia respecto a la variante de base externa (05/11/2026) es que se repuso el contenedor `db` (MySQL 8, con volumen `db-datos` y los scripts de `sigeru-backend/docker/init-db` montados en `docker-entrypoint-initdb.d`), y las variables de conexión del contenedor `web` vuelven a apuntar al contenedor local en vez de a variables externas.
 
-- Se quitó el contenedor `db` y las variables de conexión del contenedor `web` ahora vienen de `.env` (host/puerto/usuario/contraseña externos) en vez de apuntar al contenedor local.
-- Se agregó soporte de `DB_PORT` en las 3 `Conexion.php` (antes no existía la variable; por defecto usa 3306, así que no cambia el comportamiento en ninguna instalación existente — XAMPP, Docker local, etc.).
-- Se verificó con `php -l` que los 3 `Conexion.php` modificados no tienen errores de sintaxis.
-
-**Lo que falta de verificar** (depende de la VM del compañero, no de este código): que la conexión de red desde donde se levanten los contenedores hacia `DB_HOST:DB_PORT` esté habilitada, y que el usuario de `DB_USER` tenga permiso de conexión desde esa máquina. No se pudo probar contra la VM real desde este entorno porque no se tienen sus datos de acceso — conviene correr `docker compose up --build` una vez en la máquina real y confirmar que el login y la carga de contenedores devuelven datos reales antes de dar la entrega por cerrada.
+**Lo que falta de verificar**: correr `docker compose up --build` de punta a punta en la VM real de la instalación (Linux, Docker Engine) y confirmar que las 21 tablas y los datos de prueba se cargan en el contenedor `db`, que el login funciona, y que el respaldo con `admin_servidor.sh` genera un `.tar.gz` válido.
