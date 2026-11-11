@@ -8,6 +8,8 @@ Esta carpeta **no es un repo de código del proyecto** — es el "pegamento" que
 
 ```
 sigeru-deploy/       <- esta carpeta (el "pegamento": compose + gateway + .env)
+  admin_servidor/    <- script de administración y respaldo .tar.gz de la base
+  INSTALACION.md     <- manual de instalación en Linux, paso a paso
 sigeru-backend/      <- las 3 APIs PHP (api-usuarios, api-gestion, api-recoleccion)
 sigeru-frontend/     <- los 3 sitios estáticos (landing, frontend-usuarios, backoffice)
 ```
@@ -60,10 +62,15 @@ El puerto de MySQL (3306) queda publicado **solo en `127.0.0.1`** (loopback de l
 
 ## Respaldo (.tar.gz)
 
-El volumen `db-datos` persiste los datos de MySQL, pero para el respaldo comprimido en `.tar.gz` que exige el comunicado de instalación se usa `admin_servidor.sh` (carpeta aparte, `admin_servidor_docker`), ya adaptado para hablar con este contenedor `db` vía `docker compose exec`. Ver `Guia_Consolidacion_3VM_a_1VM.md` del equipo para el paso a paso completo.
+El volumen `db-datos` persiste los datos de MySQL. El respaldo comprimido en `.tar.gz` que exige el comunicado de instalación lo genera `admin_servidor/admin_servidor.sh` (en esta misma carpeta):
+
+- Menú **5 → 5** crea el usuario `backup_user` (solo lectura) dentro del contenedor `db` y guarda sus credenciales en `~/.sigeru_backup.cnf` (permisos 600).
+- `./admin_servidor.sh --backup` hace `mysqldump` por `127.0.0.1:3306`, comprime en `~/backups_local/sigeru_<fecha>.sql.tar.gz`, verifica el archivo con `tar -tzf` y aplica la retención (7 diarios, 4 semanales, 6 mensuales). Es la misma orden que se programa en `cron`.
+
+El paso a paso completo de la instalación en Linux está en [INSTALACION.md](INSTALACION.md).
 
 ## Qué quedó verificado y qué falta
 
 Esta variante reutiliza tal cual el `Dockerfile` de `sigeru-backend` y de `sigeru-frontend`, y el mismo `gateway.conf`. Lo que cambia respecto a la variante de base externa (05/11/2026) es que se repuso el contenedor `db` (MySQL 8, con volumen `db-datos` y los scripts de `sigeru-backend/docker/init-db` montados en `docker-entrypoint-initdb.d`), y las variables de conexión del contenedor `web` vuelven a apuntar al contenedor local en vez de a variables externas.
 
-**Lo que falta de verificar**: correr `docker compose up --build` de punta a punta en la VM real de la instalación (Linux, Docker Engine) y confirmar que las 21 tablas y los datos de prueba se cargan en el contenedor `db`, que el login funciona, y que el respaldo con `admin_servidor.sh` genera un `.tar.gz` válido.
+**Ensayo del 11/11/2026**: instalación completa desde GitHub en un Ubuntu 24.04 limpio con Docker Engine, siguiendo [INSTALACION.md](INSTALACION.md). Resultado: los 4 contenedores levantan, se cargan las 21 tablas y los datos de prueba, responden los 3 sitios y las APIs, el login de administrador funciona, una modificación desde el panel persiste después de `docker compose down` y `up`, y `admin_servidor.sh --backup` genera un `.tar.gz` íntegro.

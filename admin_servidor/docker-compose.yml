@@ -1,0 +1,19 @@
+name: sigeru-admin
+
+services:
+  admin:
+    image: sigeru-admin:1.0
+    build: .
+    container_name: sigeru-admin
+    networks: [red]
+    volumes:
+      - respaldos:/home/fc/backups_local
+      - ./config/sigeru.conf:/home/fc/admin_servidor/config/sigeru.conf:ro
+
+networks:
+  red:
+    name: sigeru_admin_red
+
+volumes:
+  respaldos:
+    name: sigeru_respaldos
